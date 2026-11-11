@@ -1,0 +1,58 @@
+# Builds the CADCraft Android APK from cadcraft-android-port.zip in this repository.
+# Upload a new zip (same name) to build again, or use Run workflow in the Actions tab.
+name: Android
+
+on:
+  workflow_dispatch:
+  push:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Unpack the project
+        run: unzip -q cadcraft-android-port.zip
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Rust toolchain and Android target
+        run: |
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-linux-android
+          rustc --version
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: cadcraft-main -> target
+
+      - name: cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      # The runner image ships the Android SDK (ANDROID_HOME) and an NDK.
+      - name: Build the APK
+        working-directory: cadcraft-main
+        run: |
+          export ANDROID_NDK_HOME="${ANDROID_NDK_LATEST_HOME:-$ANDROID_NDK_HOME}"
+          echo "SDK: $ANDROID_HOME"
+          echo "NDK: $ANDROID_NDK_HOME"
+          bash apps/cadcraft-android/build.sh debug
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cadcraft-android-debug
+          path: cadcraft-main/apps/cadcraft-android/android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
